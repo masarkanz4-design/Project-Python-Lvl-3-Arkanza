@@ -1,0 +1,248 @@
+bot.py:
+
+import sqlite3
+import discord
+from discord.ext import commands
+
+# 1. SETTING TOKEN & DATABASE
+TOKEN = "Token Discord Disini"
+DB_NAME = "popular_street_food.db"
+
+# 2. SETTING INTENTS DISCORD
+intents = discord.Intents.default()
+intents.message_content = True
+
+# 3. DEKLARASI VARIABEL 'bot' (WAJIB SEBELUM @bot.command)
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+
+# 4. FUNGSI DATABASE
+def get_connection():
+    return sqlite3.connect(DB_NAME)
+
+
+def setup_db():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+    CREATE TABLE IF NOT EXISTS street_food (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nama_makanan TEXT NOT NULL UNIQUE,
+        asal_negara TEXT NOT NULL,
+        kategori TEXT NOT NULL,
+        deskripsi TEXT
+    )
+    """
+    )
+
+    data_makanan = [
+        (
+            "Takoyaki",
+            "Jepang",
+            "Camilan",
+            "Bola-bola adonan tepung berisi potongan gurita.",
+        ),
+        (
+            "Tacos",
+            "Meksiko",
+            "Makanan Utama",
+            "Tortilla lipat berisi daging, sayuran, dan saus salsa.",
+        ),
+        (
+            "Pad Thai",
+            "Thailand",
+            "Makanan Utama",
+            "Mie beras tumis khas Thailand dengan saus asam manis.",
+        ),
+        (
+            "Bánh Mì",
+            "Vietnam",
+            "Camilan",
+            "Roti baguette khas Vietnam berisi daging dan acar sayuran.",
+        ),
+        (
+            "Currywurst",
+            "Jerman",
+            "Camilan",
+            "Sosis potong yang disiram saus berbumbu kari khas Jerman.",
+        ),
+        (
+            "Churros",
+            "Spanyol",
+            "Dessert",
+            "Adonan goreng renyah yang ditaburi gula kayu manis.",
+        ),
+        (
+            "Kerak Telor",
+            "Indonesia",
+            "Camilan",
+            "Makanan khas Betawi berbahan ketan, telur, dan serundeng.",
+        ),
+    ]
+
+    cursor.executemany(
+        """
+    INSERT OR IGNORE INTO street_food (nama_makanan, asal_negara, kategori, deskripsi)
+    VALUES (?, ?, ?, ?)
+    """,
+        data_makanan,
+    )
+
+    conn.commit()
+    conn.close()
+
+
+# 5. EVENT BOT READY
+@bot.event
+async def on_ready():
+    setup_db()
+    print(f"✓ Bot {bot.user.name} berhasil aktif dan database siap!")
+
+
+# 6. COMMAND !cari KERAK TELOR
+@bot.command(name="cari")
+async def cari_street_food(ctx, *, keyword: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    query = """
+    SELECT nama_makanan, asal_negara, kategori, deskripsi 
+    FROM street_food 
+    WHERE LOWER(nama_makanan) LIKE LOWER(?) 
+       OR LOWER(asal_negara) LIKE LOWER(?)
+       OR LOWER(kategori) LIKE LOWER(?)
+    """
+    search_term = f"%{keyword}%"
+
+    try:
+        cursor.execute(query, (search_term, search_term, search_term))
+        results = cursor.fetchall()
+        conn.close()
+
+        if not results:
+            await ctx.send(
+                f"🔍 Makanan dengan kata kunci **'{keyword}'** tidak ditemukan."
+            )
+            return
+
+        embed = discord.Embed(
+            title=f"🔍 Hasil Pencarian: '{keyword}'", color=discord.Color.gold()
+        )
+
+        for item in results:
+            nama, negara, kategori, deskripsi = item
+            embed.add_field(
+                name=f"📌 {nama} ({negara})",
+                value=f"**Kategori:** {kategori}\n**Deskripsi:** {deskripsi}",
+                inline=False,
+            )
+
+        await ctx.send(embed=embed)
+
+    except Exception as e:
+        await ctx.send(f"❌ Error Database: {e}")
+
+
+# 7. JALANKAN BOT
+bot.run(TOKEN)
+
+convert.py:
+
+import sqlite3
+
+# 1. Menghubungkan ke database (file akan otomatis dibuat jika belum ada)
+conn = sqlite3.connect("popular_street_food.db")
+cursor = conn.cursor()
+
+# 2. Membuat tabel street_food
+cursor.execute(
+    """
+CREATE TABLE IF NOT EXISTS street_food (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nama_makanan TEXT NOT NULL UNIQUE,
+    asal_negara TEXT NOT NULL,
+    kategori TEXT NOT NULL,
+    deskripsi TEXT
+)
+"""
+)
+
+# 3. Data popular street food
+data_makanan = [
+    (
+        "Takoyaki",
+        "Jepang",
+        "Camilan",
+        "Bola-bola adonan tepung berisi potongan gurita.",
+    ),
+    (
+        "Tacos",
+        "Meksiko",
+        "Makanan Utama",
+        "Tortilla lipat berisi daging, sayuran, dan saus salsa.",
+    ),
+    (
+        "Pad Thai",
+        "Thailand",
+        "Makanan Utama",
+        "Mie beras tumis khas Thailand dengan saus asam manis.",
+    ),
+    (
+        "Bánh Mì",
+        "Vietnam",
+        "Camilan",
+        "Roti baguette khas Vietnam berisi daging dan acar sayuran.",
+    ),
+    (
+        "Currywurst",
+        "Jerman",
+        "Camilan",
+        "Sosis potong yang disiram saus berbumbu kari khas Jerman.",
+    ),
+    (
+        "Churros",
+        "Spanyol",
+        "Dessert",
+        "Adonan goreng renyah yang ditaburi gula kayu manis.",
+    ),
+    (
+        "Kerak Telor",
+        "Indonesia",
+        "Camilan",
+        "Makanan khas Betawi berbahan ketan, telur, dan serundeng.",
+    ),
+]
+
+# 4. Memasukkan data ke dalam tabel
+cursor.executemany(
+    """
+INSERT OR IGNORE INTO street_food (nama_makanan, asal_negara, kategori, deskripsi)
+VALUES (?, ?, ?, ?)
+""",
+    data_makanan,
+)
+
+# ⚠️ Wajib commit agar data tersimpan permanen di file .db
+conn.commit()
+
+
+# 5. Menampilkan isi database
+def tampilkan_data():
+    cursor.execute("SELECT * FROM street_food")
+    rows = cursor.fetchall()
+
+    print(
+        f"\n{'ID':<3} | {'Nama Makanan':<15} | {'Negara':<10} | {'Kategori':<13} | {'Deskripsi'}"
+    )
+    print("-" * 80)
+    for row in rows:
+        print(
+            f"{row[0]:<3} | {row[1]:<15} | {row[2]:<10} | {row[3]:<13} | {row[4]}"
+        )
+
+
+tampilkan_data()
+
+# Tutup koneksi
+conn.close()
