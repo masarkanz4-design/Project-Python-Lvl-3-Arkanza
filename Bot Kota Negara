@@ -5,6 +5,7 @@ from logic import *
 import discord
 from discord.ext import commands
 from config import TOKEN
+import os
 
 # Menginisiasi pengelola database
 manager = DB_Map("database.db")
@@ -25,42 +26,77 @@ async def help_me(ctx: commands.Context):
 """
 !start - memulai
 !help_me - menampilkan perintah yang tersedia
-!show_city city_name - menampilkan kota pada peta
-!show_my_cities - menampilkan daftar kota yang tersimpan
-!remember_city - menyimpan kota
+!show_city <nama_kota> [warna] - menampilkan kota pada peta (contoh: !show_city London blue)
+!show_my_cities [warna] - menampilkan daftar kota tersimpan (contoh: !show_my_cities green)
+!remember_city <nama_kota> - menyimpan kota
 """
     )
 
 @bot.command()
-async def show_city(ctx: commands.Context, *, city_name=""):
+async def show_city(ctx: commands.Context, *, args=""):
+    if not args:
+        await ctx.send("Silakan masukkan nama kota. Contoh: `!show_city London` atau `!show_city London blue`")
+        return
+
+    # Memisah nama kota dan pilihan warna (jika kata terakhir adalah nama warna)
+    parts = args.rsplit(' ', 1)
+    
+    # Daftar warna standar yang didukung oleh Matplotlib
+    valid_colors = ['red', 'blue', 'green', 'yellow', 'orange', 'purple', 'black', 'white', 'cyan', 'magenta']
+    
+    if len(parts) > 1 and parts[1].lower() in valid_colors:
+        city_name = parts[0]
+        color = parts[1].lower()
+    else:
+        city_name = args
+        color = 'red'  # Warna bawaan jika pengguna tidak menentukan warna
+
     coordinates = manager.get_coordinates(city_name)  # Mendapatkan koordinat kota dari database
     if coordinates:
-        file_name = f"{city_name}.png"
-        manager.create_graph(file_name, [city_name])  # Membuat peta dengan kota yang diminta
-        await ctx.send(file=discord.File(filename=file_name))  # Mengirim file peta ke Discord
+        file_name = f"{ctx.author.id}_city.png"
+        manager.create_graph(file_name, [city_name], color=color)  # Membuat peta dengan warna pilihan
+        
+        await ctx.send(
+            content=f"Berikut adalah lokasi **{city_name.title()}** dengan warna penanda `{color}`:",
+            file=discord.File(file_name)
+        )
+        
+        # Hapus file gambar lokal setelah dikirim agar tidak memenuhi penyimpanan
+        if os.path.exists(file_name):
+            os.remove(file_name)
     else:
         await ctx.send("Kota tidak ditemukan. Pastikan nama kota ditulis dalam bahasa Inggris.")
 
 @bot.command()
-async def show_my_cities(ctx: commands.Context):
-    cities = manager.select_cities(ctx.author.id)  # Mengambil daftar kota yang diingat oleh pengguna
+async def show_my_cities(ctx: commands.Context, color: str = 'red'):
+    cities = manager.select_cities(ctx.author.id)  # Mengambil daftar kota pengguna
 
-    file_name = f"my_cities.png"
-    manager.create_graph(file_name, cities)
-    await ctx.send(file=discord.File(filename=file_name))
-    # Implementasi perintah yang akan menampilkan peta dengan kota pengguna
+    if not cities:
+        await ctx.send("Anda belum menyimpan kota apapun. Gunakan perintah `!remember_city <nama_kota>` terlebih dahulu.")
+        return
+
+    file_name = f"{ctx.author.id}_my_cities.png"
+    manager.create_graph(file_name, cities, color=color.lower())
+    
+    await ctx.send(
+        content=f"Daftar kota Anda dengan penanda berwarna `{color}`:",
+        file=discord.File(file_name)
+    )
+    
+    # Hapus file gambar lokal setelah dikirim
+    if os.path.exists(file_name):
+        os.remove(file_name)
 
 @bot.command()
 async def remember_city(ctx: commands.Context, *, city_name=""):
-    if manager.add_city(ctx.author.id, city_name):  # Memeriksa apakah kota ada dalam database; jika ya, menambahkannya ke memori pengguna
-        await ctx.send(f'Kota {city_name} telah berhasil disimpan!')
+    if manager.add_city(ctx.author.id, city_name):  # Memeriksa apakah kota ada dalam database
+        await ctx.send(f'Kota **{city_name.title()}** telah berhasil disimpan!')
     else:
-        await ctx.send("Format tidak benar. Silakan masukkan nama kota dalam bahasa Inggris, dengan spasi setelah perintah.")
+        await ctx.send("Kota tidak ditemukan. Silakan masukkan nama kota dalam bahasa Inggris.")
 
 if __name__ == "__main__":
     bot.run(TOKEN)
 
-# logic.py
 import sqlite3
 import matplotlib
 
@@ -122,52 +158,54 @@ class DB_Map():
             coordinates = cursor.fetchone()
             return coordinates  # Mengembalikan koordinat kota
 
-    def create_graph(self, path, cities):
+    def create_graph(self, path, cities, color='red'):
+        # Membuat figure baru agar plot lama terawat/terkonfigurasi ulang
+        fig = plt.figure(figsize=(10, 5))
         ax = plt.axes(projection=ccrs.PlateCarree())
         ax.stock_img()
 
         for city in cities:
             coord = self.get_coordinates(city)
+            if coord:
+                # Menggunakan parameter `color` yang dimasukkan pengguna
+                plt.plot(coord[1], coord[0], marker='o', color=color, markersize=6, transform=ccrs.Geodetic())
+                plt.text(coord[1] + 1, coord[0] + 1, city, transform=ccrs.Geodetic(), fontsize=9)
 
-            plt.plot(coord[1], coord[0], marker='o', color='red', markersize=5, transform=ccrs.Geodetic())
-
-            # plt.plot([ny_lon], [ny_lat],
-            #                 color='blue', linewidth=2, marker='o',
-            #                 transform=ccrs.Geodetic(),
-            #                 )
-
-            # plt.text(ny_lon - 3, ny_lat - 12, city,
-            #                 horizontalalignment='right',
-            #                 transform=ccrs.Geodetic())
-
-        plt.savefig(path)
+        plt.savefig(path, bbox_inches='tight')
+        plt.close(fig)  # Membersihkan memori Matplotlib setelah disimpan
 
     def draw_distance(self, city1, city2):
+        fig = plt.figure(figsize=(10, 5))
         ax = plt.axes(projection=ccrs.PlateCarree())
         ax.stock_img()
 
-        ny_lon, ny_lat = self.get_coordinates(city1)
-        delhi_lon, delhi_lat = self.get_coordinates(city2)
+        coords1 = self.get_coordinates(city1)
+        coords2 = self.get_coordinates(city2)
 
-        plt.plot([ny_lon, delhi_lon], [ny_lat, delhi_lat],
-                color='blue', linewidth=2, marker='o',
-                transform=ccrs.Geodetic(),
-                )
+        if coords1 and coords2:
+            ny_lat, ny_lon = coords1
+            delhi_lat, delhi_lon = coords2
 
-        plt.plot([ny_lon, delhi_lon], [ny_lat, delhi_lat],
-                color='gray', linestyle='--',
-                transform=ccrs.PlateCarree(),
-                )
+            plt.plot([ny_lon, delhi_lon], [ny_lat, delhi_lat],
+                    color='blue', linewidth=2, marker='o',
+                    transform=ccrs.Geodetic(),
+                    )
 
-        plt.text(ny_lon - 3, ny_lat - 12, city1,
-                horizontalalignment='right',
-                transform=ccrs.Geodetic())
+            plt.plot([ny_lon, delhi_lon], [ny_lat, delhi_lat],
+                    color='gray', linestyle='--',
+                    transform=ccrs.PlateCarree(),
+                    )
 
-        plt.text(delhi_lon + 3, delhi_lat - 12, city2,
-                horizontalalignment='left',
-                transform=ccrs.Geodetic())
+            plt.text(ny_lon - 3, ny_lat - 12, city1,
+                    horizontalalignment='right',
+                    transform=ccrs.Geodetic())
 
-        plt.savefig("distance.png")
+            plt.text(delhi_lon + 3, delhi_lat - 12, city2,
+                    horizontalalignment='left',
+                    transform=ccrs.Geodetic())
+
+        plt.savefig("distance.png", bbox_inches='tight')
+        plt.close(fig)
 
 
 if __name__ == "__main__":
