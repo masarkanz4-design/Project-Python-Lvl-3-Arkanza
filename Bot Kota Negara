@@ -1,0 +1,175 @@
+# bot.py
+
+from config import *
+from logic import *
+import discord
+from discord.ext import commands
+from config import TOKEN
+
+# Menginisiasi pengelola database
+manager = DB_Map("database.db")
+
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
+
+@bot.event
+async def on_ready():
+    print("Bot started")
+
+@bot.command()
+async def start(ctx: commands.Context):
+    await ctx.send(f"Halo, {ctx.author.name}. Masukkan !help_me untuk mengeksplorasi daftar perintah yang tersedia")
+
+@bot.command()
+async def help_me(ctx: commands.Context):
+    await ctx.send(
+"""
+!start - memulai
+!help_me - menampilkan perintah yang tersedia
+!show_city city_name - menampilkan kota pada peta
+!show_my_cities - menampilkan daftar kota yang tersimpan
+!remember_city - menyimpan kota
+"""
+    )
+
+@bot.command()
+async def show_city(ctx: commands.Context, *, city_name=""):
+    coordinates = manager.get_coordinates(city_name)  # Mendapatkan koordinat kota dari database
+    if coordinates:
+        file_name = f"{city_name}.png"
+        manager.create_graph(file_name, [city_name])  # Membuat peta dengan kota yang diminta
+        await ctx.send(file=discord.File(filename=file_name))  # Mengirim file peta ke Discord
+    else:
+        await ctx.send("Kota tidak ditemukan. Pastikan nama kota ditulis dalam bahasa Inggris.")
+
+@bot.command()
+async def show_my_cities(ctx: commands.Context):
+    cities = manager.select_cities(ctx.author.id)  # Mengambil daftar kota yang diingat oleh pengguna
+
+    file_name = f"my_cities.png"
+    manager.create_graph(file_name, cities)
+    await ctx.send(file=discord.File(filename=file_name))
+    # Implementasi perintah yang akan menampilkan peta dengan kota pengguna
+
+@bot.command()
+async def remember_city(ctx: commands.Context, *, city_name=""):
+    if manager.add_city(ctx.author.id, city_name):  # Memeriksa apakah kota ada dalam database; jika ya, menambahkannya ke memori pengguna
+        await ctx.send(f'Kota {city_name} telah berhasil disimpan!')
+    else:
+        await ctx.send("Format tidak benar. Silakan masukkan nama kota dalam bahasa Inggris, dengan spasi setelah perintah.")
+
+if __name__ == "__main__":
+    bot.run(TOKEN)
+
+# logic.py
+import sqlite3
+import matplotlib
+
+matplotlib.use('Agg')  # Menginstal backend Matplotlib untuk menyimpan file dalam memori tanpa menampilkan jendela
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs  # Mengimpor modul yang akan memungkinkan kita bekerja dengan proyeksi peta
+
+class DB_Map():
+    def __init__(self, database):
+        self.database = database  # Menginisiasi jalur database
+
+    def create_user_table(self):
+        conn = sqlite3.connect(self.database)  # Menghubungkan ke database
+        with conn:
+            # Membuat tabel, jika tidak ada, untuk menyimpan kota pengguna
+            conn.execute('''CREATE TABLE IF NOT EXISTS users_cities (
+                                user_id INTEGER,
+                                city_id TEXT,
+                                FOREIGN KEY(city_id) REFERENCES cities(id)
+                            )''')
+            conn.commit()  # Menyimpan perubahan
+
+    def add_city(self, user_id, city_name):
+        conn = sqlite3.connect(self.database)
+        with conn:
+            cursor = conn.cursor()
+            # Mencari kota dalam database berdasarkan nama
+            cursor.execute("SELECT id FROM cities WHERE city=?", (city_name,))
+            city_data = cursor.fetchone()
+            if city_data:
+                city_id = city_data[0]
+                # Menambahkan kota ke daftar kota pengguna
+                conn.execute('INSERT INTO users_cities VALUES (?, ?)', (user_id, city_id))
+                conn.commit()
+                return 1  # Menunjukkan bahwa operasi berhasil
+            else:
+                return 0  # Menunjukkan bahwa kota tidak ditemukan
+
+    def select_cities(self, user_id):
+        conn = sqlite3.connect(self.database)
+        with conn:
+            cursor = conn.cursor()
+            # Memilih semua kota pengguna
+            cursor.execute('''SELECT cities.city 
+                            FROM users_cities  
+                            JOIN cities ON users_cities.city_id = cities.id
+                            WHERE users_cities.user_id = ?''', (user_id,))
+            cities = [row[0] for row in cursor.fetchall()]
+            return cities  # Mengembalikan daftar kota pengguna
+
+    def get_coordinates(self, city_name):
+        conn = sqlite3.connect(self.database)
+        with conn:
+            cursor = conn.cursor()
+            # Mendapatkan koordinat kota berdasarkan nama
+            cursor.execute('''SELECT lat, lng
+                            FROM cities  
+                            WHERE city = ?''', (city_name,))
+            coordinates = cursor.fetchone()
+            return coordinates  # Mengembalikan koordinat kota
+
+    def create_graph(self, path, cities):
+        ax = plt.axes(projection=ccrs.PlateCarree())
+        ax.stock_img()
+
+        for city in cities:
+            coord = self.get_coordinates(city)
+
+            plt.plot(coord[1], coord[0], marker='o', color='red', markersize=5, transform=ccrs.Geodetic())
+
+            # plt.plot([ny_lon], [ny_lat],
+            #                 color='blue', linewidth=2, marker='o',
+            #                 transform=ccrs.Geodetic(),
+            #                 )
+
+            # plt.text(ny_lon - 3, ny_lat - 12, city,
+            #                 horizontalalignment='right',
+            #                 transform=ccrs.Geodetic())
+
+        plt.savefig(path)
+
+    def draw_distance(self, city1, city2):
+        ax = plt.axes(projection=ccrs.PlateCarree())
+        ax.stock_img()
+
+        ny_lon, ny_lat = self.get_coordinates(city1)
+        delhi_lon, delhi_lat = self.get_coordinates(city2)
+
+        plt.plot([ny_lon, delhi_lon], [ny_lat, delhi_lat],
+                color='blue', linewidth=2, marker='o',
+                transform=ccrs.Geodetic(),
+                )
+
+        plt.plot([ny_lon, delhi_lon], [ny_lat, delhi_lat],
+                color='gray', linestyle='--',
+                transform=ccrs.PlateCarree(),
+                )
+
+        plt.text(ny_lon - 3, ny_lat - 12, city1,
+                horizontalalignment='right',
+                transform=ccrs.Geodetic())
+
+        plt.text(delhi_lon + 3, delhi_lat - 12, city2,
+                horizontalalignment='left',
+                transform=ccrs.Geodetic())
+
+        plt.savefig("distance.png")
+
+
+if __name__ == "__main__":
+    m = DB_Map("database.db")  # Membuat objek yang akan berinteraksi dengan database
+    m.create_user_table()   # Membuat tabel dengan kota pengguna, jika tidak sudah ada
