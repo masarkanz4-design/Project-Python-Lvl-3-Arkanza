@@ -1,0 +1,68 @@
+ai.py:
+
+import requests  # Mengimpor library requests untuk mengirim permintaan HTTP ke API
+
+def download_image(prompt):
+    # Mendefinisikan fungsi download_image.
+    # Fungsi ini menerima satu parameter: prompt.
+    # prompt adalah deskripsi teks dari gambar yang akan dibuat.
+
+    url = f"https://image.pollinations.ai/image/{prompt}"
+    # Membuat URL permintaan.
+    # Nilai variabel prompt dimasukkan ke dalam URL.
+    # Ini adalah alamat yang digunakan untuk mengakses layanan pembuatan gambar.
+
+    response = requests.get(url)
+    # Mengirim permintaan GET ke server.
+    # Server akan mengembalikan data gambar sebagai respons.
+
+    with open('generated_image.jpg', 'wb') as file:
+        # Membuka file generated_image.jpg dalam mode tulis biner (wb).
+        # Mode wb diperlukan karena gambar adalah data biner, bukan teks biasa.
+
+        file.write(response.content)
+        # Menuliskan isi respons dari server ke dalam file.
+        # response.content berisi byte gambar.
+
+    print('Gambar diunduh!')
+    # Menampilkan pesan ke konsol agar pengguna tahu program telah selesai.
+
+download_image("seni_piksel_suasana_nyaman__dan_lebah_di_taman_digital_8-bit_bernuansa_hangat_stardew_valley")
+# Memanggil fungsi dan memberikan prompt sebagai argumen.
+# Setelah dijalankan, program akan mengirim permintaan dan menyimpan gambar ke file.
+
+bot.py:
+
+# This example requires the 'message_content' intent.
+
+import discord
+
+from ai import download_image
+
+intents = discord.Intents.default()
+intents.message_content = True
+
+client = discord.Client(intents=intents)
+
+@client.event
+async def on_ready():
+    print(f'We have logged in as {client.user}')
+
+@client.event
+async def on_message(message):
+    if message.author == client.user:
+        return
+
+    if message.content.startswith('$hello'):
+        await message.channel.send('Hello!')
+
+    if message.content.startswith('$download'):
+        prompt = message.content[len('$download '):].strip()
+        if prompt:
+            download_image(prompt)
+            await message.channel.send('Gambar diunduh!')
+        else:
+            await message.channel.send('Silakan berikan prompt untuk mengunduh gambar.')
+
+client.run('token')
+
