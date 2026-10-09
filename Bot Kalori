@@ -1,0 +1,16 @@
+Bot Penghitung Kalori
+
+Alat-alat:
+Pyhon
+VSCode
+-Library :
+discord.py
+
+-Database :
+Informasi tentang nutrisi makanan dengan kandungan kalori
+
+1. Mencari database serta memahami rumus dasar kalori
+
+2. Membuat file baru di VSCode seperti main.py, kalkulator_kalori.py, database.py, dan config.py
+
+3. Setup Dasar Bot, Mengembangkan Fitur, Mencatat Kalori, dan Menguji Bot Kalori
